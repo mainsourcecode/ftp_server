@@ -1,0 +1,102 @@
+modem  = require('component').modem
+event  = require('event')
+computer=require("computer")
+fs=require("component").proxy(computer.getBootAddress())
+ser=require("serialization").serialize
+ 
+ftpname, ftppath= ...
+if not ftpname then
+  print("Использование: ftp_serv <server_name> [<shared_folder>]")
+  return
+end
+ftppath=ftppath or "/"
+if ftppath:sub(-1)~="/" then ftppath=ftppath.."/" end
+ 
+if not fs.isDirectory(ftppath) then
+  print("Дирректория "..ftppath.." не найдена")
+  return
+end
+ 
+local eventname, sendID, comm, p1,p2
+ 
+if not modem then
+  print("Сетевая карта не найдена")
+  return
+end
+FTPport = 21
+modem.open(FTPport)
+files={}
+ftpfs={
+  isReadOnly=fs.isReadOnly,
+  spaceTotal= fs.spaceTotal,
+  spaceUsed= fs.spaceUsed,
+  getLabel=function() return ftpname end,
+ 
+  makeDirectory=function(path)
+    return fs.makeDirectory(ftppath..path)
+  end,
+ 
+  isDirectory=function(path)
+    return fs.isDirectory(ftppath..path)
+  end,
+ 
+  exists=function(path)
+    return fs.exists(ftppath..path)
+  end,
+ 
+  remove=function(path)
+    return fs.remove(ftppath..path)
+  end,
+ 
+  lastModified=function(path)
+    return fs.lastModified(ftppath..path)
+  end,
+ 
+  size=function(path)
+    return fs.size(ftppath..path)
+  end,
+ 
+open=function(path, mode)
+  if files[sendID] then fs.close(files[sendID]) end
+  files[sendID]=fs.open(ftppath..path, mode)
+  return files[sendID]
+end,
+ 
+rename=function(from, to)
+  return fs.rename(ftppath..from, ftppath..to)
+end,
+ 
+list=function(path)
+  return ser(fs.list(ftppath..path))
+end,
+ 
+write=function(handle, value)
+  return fs.write(handle, value)
+end,
+ 
+read=function(handle, count)
+  if files[sendID]~=handle then return nil, "file is closed" end
+  if count>8000 then count=8000 end
+  return fs.read(handle, count)
+end,
+ 
+seek=function(handle, whence, offset)
+  if files[sendID]~=handle then return nil, "file is closed" end
+  return fs.seek(handle, whence, offset)
+end,
+ 
+close=function(handle)
+  files[sendID]=nil
+  return fs.close(handle)
+end,
+}
+ 
+while true do
+  eventname, _,sendID, _, _, comm, p1,p2 = event.pull("modem_message")
+  if eventname=="modem_message" then
+    if ftpfs[comm] then
+--    print(sendID, comm, p1,p2)
+      modem.send(sendID,FTPport,comm,ftpfs[comm](p1,p2))
+    end
+  end
+end
